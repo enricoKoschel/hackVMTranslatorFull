@@ -18,7 +18,6 @@ string arithCommands[9] = { "add", "sub", "neg", "eq", "gt", "lt", "and", "or", 
 enum class command {
 	C_ARITHMETIC,
 	C_PUSH, C_POP,
-
 	C_LABEL, C_GOTO,
 	C_IF,
 	C_FUNCTION,
@@ -48,8 +47,15 @@ public:
 		if (!hasMoreCommands) return;
 		if (getline(inputFile, line)) {
 			currentLine++;
-			if ((line[0] == '/' && line[1] == '/') || line == "") {
+
+			line = line.substr(0, line.find("//"));
+
+			if (line == "") {
 				advance();
+			}
+
+			if (line.find("\t") != string::npos) {
+				line.replace(line.find("\t"), 2, "");
 			}
 
 			int firstSpace = line.find_first_of(' ');
@@ -95,7 +101,7 @@ public:
 					string thirdSegment = line.substr(firstSpace + 2).substr(secondSpace);
 
 					for (auto chr : thirdSegment) {
-						if (!isdigit(chr)) {
+						if (!isdigit(chr) && chr != ' ') {
 							cerr << "Error on line: " << currentLine << endl;
 							exit(1);
 						}
@@ -141,6 +147,7 @@ private:
 	int segmentAddress;
 	string currentVMFile;
 	int eqs, gts, lts;
+	int numFunctions;
 public:
 	codeWriter(fs::path _outputFilePath) {
 
@@ -403,23 +410,42 @@ public:
 	}
 
 	void writeLabel(string label) {
-		outputFile << "" << endl;
+		if (numFunctions != 0) {
+			//change label
+		}
+		outputFile << "(" << label << ")" << endl;
 	}
 
 	void writeGoto(string label) {
-
+		if (numFunctions != 0) {
+			//change label
+		}
+		outputFile << "@" << label << endl;
+		outputFile << "0;JMP" << endl;
 	}
 
 	void writeIf(string label) {
-
+		if (numFunctions != 0) {
+			//change label
+		}
+		outputFile << "@0" << endl;
+		outputFile << "M=M-1" << endl;
+		outputFile << "A=M" << endl;
+		outputFile << "D=M" << endl;
+		outputFile << "@EQUAL" << eqs << endl;
+		outputFile << "D;JEQ" << endl;
+		outputFile << "@" << label << endl;
+		outputFile << "0;JMP" << endl;
+		outputFile << "(EQUAL" << eqs << ")" << endl;
+		eqs++;
 	}
 
 	void writeCall(string functionName, int numArgs) {
-
+		numFunctions++;
 	}
 
 	void writeReturn() {
-
+		numFunctions--;
 	}
 
 	void writeFunction(string functionName, int numLocals) {
@@ -472,6 +498,24 @@ int main(int argc, char* argv[]) {
 		}
 		else if (bob.getCommandType() == command::C_PUSH || bob.getCommandType() == command::C_POP) {
 			cW.writePushPop(bob.getCommandType(), bob.getArg1(), bob.getArg2());
+		}
+		else if (bob.getCommandType() == command::C_LABEL) {
+			cW.writeLabel(bob.getArg1());
+		}
+		else if (bob.getCommandType() == command::C_GOTO) {
+			cW.writeGoto(bob.getArg1());
+		}
+		else if (bob.getCommandType() == command::C_IF) {
+			cW.writeIf(bob.getArg1());
+		}
+		else if (bob.getCommandType() == command::C_FUNCTION) {
+			
+		}
+		else if (bob.getCommandType() == command::C_RETURN) {
+			
+		}
+		else if (bob.getCommandType() == command::C_CALL) {
+			
 		}
 	}
 }
