@@ -1,17 +1,14 @@
 #include <iostream>
 #include <filesystem>
 #include <fstream>
-#include <vector>
 #include <string>
-#include <algorithm>
 
 using namespace std;
 namespace fs = filesystem;
 
 fs::path inputFilePath;
-bool directory = false;
 fs::path outputFilePath;
-vector<fs::path> inputFilePaths;
+bool directory = false;
 
 string arithCommands[9] = { "add", "sub", "neg", "eq", "gt", "lt", "and", "or", "not" };
 
@@ -34,8 +31,10 @@ private:
 	ifstream inputFile;
 	string line;
 	int currentLine;
+	fs::path currentFile;
 public:
 	parserModule(fs::path _inputFilePath) {
+		currentFile = _inputFilePath;
 		inputFile = ifstream(_inputFilePath);
 		if (!inputFile.is_open()) {
 			cerr << _inputFilePath.string() << " could not be opened!";
@@ -139,6 +138,10 @@ public:
 	command getCommandType() {
 		return commandType;
 	}
+
+	fs::path getCurrentFile() {
+		return currentFile;
+	}
 };
 
 class codeWriter {
@@ -150,19 +153,6 @@ private:
 	vector<string> callStack;
 public:
 	codeWriter(fs::path _outputFilePath) {
-
-		//---------------------------------------
-		currentVMFile = _outputFilePath.string();
-		//---------------------------------------
-
-		for (int i = 0; i < currentVMFile.length(); i++) {
-			if (isalpha(currentVMFile[i])) {
-				currentVMFile = currentVMFile.substr(i);
-				break;
-			}
-		}
-		currentVMFile = currentVMFile.substr(0, currentVMFile.find_first_of("."));
-
 		outputFile = ofstream(_outputFilePath);
 		if (!outputFile.is_open()) {
 			cerr << outputFilePath.string() << " could not be created/opened!";
@@ -172,6 +162,16 @@ public:
 
 	void setFileName(fs::path _currentVMFile) {
 		currentVMFile = _currentVMFile.string();
+
+		int pos = currentVMFile.find(".vm");
+
+		for (int i = pos - 1; i > 0; i--) {
+			if (!isalnum(currentVMFile[i])) {
+				currentVMFile = currentVMFile.substr(0, pos);
+				currentVMFile = currentVMFile.substr(i + 1);
+				break;
+			}
+		}
 	}
 
 	void writeArithmetic(string command) {
@@ -411,12 +411,16 @@ public:
 		outputFile << "@SP" << endl;
 		outputFile << "M=D" << endl;
 		writeCall("Sys.init", 0);
+		callStack.pop_back();
 	}
 
 	void writeLabel(string label) {
 		if (!callStack.empty()) {
 			label = callStack.back() + ":" + label;
 		}
+
+		label = currentVMFile + "." + label;
+
 		outputFile << "(" << label << ")" << endl;
 	}
 
@@ -424,6 +428,9 @@ public:
 		if (!callStack.empty()) {
 			label = callStack.back() + ":" + label;
 		}
+
+		label = currentVMFile + "." + label;
+
 		outputFile << "@" << label << endl;
 		outputFile << "0;JMP" << endl;
 	}
@@ -432,6 +439,9 @@ public:
 		if (!callStack.empty()) {
 			label = callStack.back() + ":" + label;
 		}
+
+		label = currentVMFile + "." + label;
+
 		outputFile << "@0" << endl;
 		outputFile << "M=M-1" << endl;
 		outputFile << "A=M" << endl;
@@ -590,19 +600,17 @@ public:
 int handleArguments(int argc, char* argv[]) {
 	if (argc == 2) {
 		inputFilePath = argv[1];
-		int pos = inputFilePath.string().find(".vm", 1);
-		if (pos != string::npos) {
-			outputFilePath = inputFilePath.string().substr(0, pos) + ".asm";
-		}
+		if (!fs::exists(inputFilePath)) return 1;
 
-		else {
-			int lastChar = inputFilePath.string().length() - 1;
-			while (inputFilePath.string()[lastChar] == '/' || inputFilePath.string()[lastChar] == '\\') {
-				inputFilePath = inputFilePath.string().substr(0, lastChar);
-				lastChar = inputFilePath.string().length() - 1;
-			}
-			outputFilePath = inputFilePath.string() + ".asm";
+		if (fs::is_directory(inputFilePath)) {
 			directory = true;
+			outputFilePath = inputFilePath.string() + ".asm";
+		}
+		else if (inputFilePath.string().find(".vm", 1) != string::npos) {
+			outputFilePath = inputFilePath.string().substr(0, inputFilePath.string().find(".vm", 1)) + ".asm";
+		}
+		else {
+			return 1;
 		}
 	}
 	else {
@@ -617,37 +625,52 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
-	parserModule bob = parserModule(inputFilePath);
+	vector<parserModule> parsers;
+
+	if (directory) {
+		for (auto& p : fs::directory_iterator(inputFilePath)) {
+			if (p.path().string().find(".vm", 1) != string::npos) {
+				parsers.push_back(parserModule(p.path()));
+			}
+		}
+	}
+	else {
+		parsers.push_back(parserModule(inputFilePath));
+	}
+
 	codeWriter cW = codeWriter(outputFilePath);
 
 	cW.writeInit();
 
-	while (bob.getHasMoreCommands()) {
-		bob.advance();
-		if (!bob.getHasMoreCommands()) break;
-		if (bob.getCommandType() == command::C_ARITHMETIC) {
-			cW.writeArithmetic(bob.getArg1());
-		}
-		else if (bob.getCommandType() == command::C_PUSH || bob.getCommandType() == command::C_POP) {
-			cW.writePushPop(bob.getCommandType(), bob.getArg1(), bob.getArg2());
-		}
-		else if (bob.getCommandType() == command::C_LABEL) {
-			cW.writeLabel(bob.getArg1());
-		}
-		else if (bob.getCommandType() == command::C_GOTO) {
-			cW.writeGoto(bob.getArg1());
-		}
-		else if (bob.getCommandType() == command::C_IF) {
-			cW.writeIf(bob.getArg1());
-		}
-		else if (bob.getCommandType() == command::C_FUNCTION) {
-			cW.writeFunction(bob.getArg1(), bob.getArg2());
-		}
-		else if (bob.getCommandType() == command::C_RETURN) {
-			cW.writeReturn();
-		}
-		else if (bob.getCommandType() == command::C_CALL) {
-			cW.writeCall(bob.getArg1(), bob.getArg2());
+	for (int i = 0; i < parsers.size(); i++) {
+		cW.setFileName(parsers[i].getCurrentFile());
+		while (parsers[i].getHasMoreCommands()) {
+			parsers[i].advance();
+			if (!parsers[i].getHasMoreCommands()) break;
+			if (parsers[i].getCommandType() == command::C_ARITHMETIC) {
+				cW.writeArithmetic(parsers[i].getArg1());
+			}
+			else if (parsers[i].getCommandType() == command::C_PUSH || parsers[i].getCommandType() == command::C_POP) {
+				cW.writePushPop(parsers[i].getCommandType(), parsers[i].getArg1(), parsers[i].getArg2());
+			}
+			else if (parsers[i].getCommandType() == command::C_LABEL) {
+				cW.writeLabel(parsers[i].getArg1());
+			}
+			else if (parsers[i].getCommandType() == command::C_GOTO) {
+				cW.writeGoto(parsers[i].getArg1());
+			}
+			else if (parsers[i].getCommandType() == command::C_IF) {
+				cW.writeIf(parsers[i].getArg1());
+			}
+			else if (parsers[i].getCommandType() == command::C_FUNCTION) {
+				cW.writeFunction(parsers[i].getArg1(), parsers[i].getArg2());
+			}
+			else if (parsers[i].getCommandType() == command::C_RETURN) {
+				cW.writeReturn();
+			}
+			else if (parsers[i].getCommandType() == command::C_CALL) {
+				cW.writeCall(parsers[i].getArg1(), parsers[i].getArg2());
+			}
 		}
 	}
 }
