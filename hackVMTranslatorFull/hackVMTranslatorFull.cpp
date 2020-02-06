@@ -147,7 +147,7 @@ private:
 	int segmentAddress;
 	string currentVMFile;
 	int eqs, gts, lts;
-	int numFunctions;
+	vector<string> callStack;
 public:
 	codeWriter(fs::path _outputFilePath) {
 
@@ -406,27 +406,31 @@ public:
 	}
 
 	void writeInit() {
-
+		outputFile << "@256" << endl;
+		outputFile << "D=A" << endl;
+		outputFile << "@SP" << endl;
+		outputFile << "M=D" << endl;
+		writeCall("Sys.init", 0);
 	}
 
 	void writeLabel(string label) {
-		if (numFunctions != 0) {
-			//change label
+		if (!callStack.empty()) {
+			label = callStack.back() + ":" + label;
 		}
 		outputFile << "(" << label << ")" << endl;
 	}
 
 	void writeGoto(string label) {
-		if (numFunctions != 0) {
-			//change label
+		if (!callStack.empty()) {
+			label = callStack.back() + ":" + label;
 		}
 		outputFile << "@" << label << endl;
 		outputFile << "0;JMP" << endl;
 	}
 
 	void writeIf(string label) {
-		if (numFunctions != 0) {
-			//change label
+		if (!callStack.empty()) {
+			label = callStack.back() + ":" + label;
 		}
 		outputFile << "@0" << endl;
 		outputFile << "M=M-1" << endl;
@@ -441,15 +445,141 @@ public:
 	}
 
 	void writeCall(string functionName, int numArgs) {
-		numFunctions++;
+		//Push return address
+		outputFile << "@" << functionName << ".returnAddress" << endl;
+		outputFile << "D=A" << endl;
+		outputFile << "@0" << endl;
+		outputFile << "M=M+1" << endl;
+		outputFile << "A=M-1" << endl;
+		outputFile << "M=D" << endl;
+		//Push LCL
+		outputFile << "@LCL" << endl;
+		outputFile << "D=M" << endl;
+		outputFile << "@0" << endl;
+		outputFile << "M=M+1" << endl;
+		outputFile << "A=M-1" << endl;
+		outputFile << "M=D" << endl;
+		//Push ARG
+		outputFile << "@ARG" << endl;
+		outputFile << "D=M" << endl;
+		outputFile << "@0" << endl;
+		outputFile << "M=M+1" << endl;
+		outputFile << "A=M-1" << endl;
+		outputFile << "M=D" << endl;
+		//Push THIS
+		outputFile << "@THIS" << endl;
+		outputFile << "D=M" << endl;
+		outputFile << "@0" << endl;
+		outputFile << "M=M+1" << endl;
+		outputFile << "A=M-1" << endl;
+		outputFile << "M=D" << endl;
+		//Push THAT
+		outputFile << "@THAT" << endl;
+		outputFile << "D=M" << endl;
+		outputFile << "@0" << endl;
+		outputFile << "M=M+1" << endl;
+		outputFile << "A=M-1" << endl;
+		outputFile << "M=D" << endl;
+		//Reposition ARG
+		outputFile << "@0" << endl;
+		outputFile << "D=M" << endl;
+		outputFile << "@" << numArgs << endl;
+		outputFile << "D=D-A" << endl;
+		outputFile << "@5" << endl;
+		outputFile << "D=D-A" << endl;
+		outputFile << "@ARG" << endl;
+		outputFile << "M=D" << endl;
+		//Reposition LCL
+		outputFile << "@0" << endl;
+		outputFile << "D=M" << endl;
+		outputFile << "@LCL" << endl;
+		outputFile << "M=D" << endl;
+		//Jump to function
+		outputFile << "@" << functionName << endl;
+		outputFile << "0;JMP" << endl;
+		//Return Address label
+		outputFile << "(" << functionName << ".returnAddress)" << endl;
+
+		callStack.push_back(functionName);
 	}
 
 	void writeReturn() {
-		numFunctions--;
+		//Set temporary frame variable
+		outputFile << "@LCL" << endl;
+		outputFile << "D=M" << endl;
+		outputFile << "@R15" << endl;	//Frame
+		outputFile << "M=D" << endl;
+		//Set temporary return address
+		outputFile << "@5" << endl;
+		outputFile << "D=D-A" << endl;
+		outputFile << "A=D" << endl;
+		outputFile << "D=M" << endl;
+		outputFile << "@R14" << endl;	//Return address
+		outputFile << "M=D" << endl;
+		//Reposition return value
+		outputFile << "@0" << endl;
+		outputFile << "A=M-1" << endl;
+		outputFile << "D=M" << endl;
+		outputFile << "@ARG" << endl;
+		outputFile << "A=M" << endl;
+		outputFile << "M=D" << endl;
+		//Restore SP from caller
+		outputFile << "@ARG" << endl;
+		outputFile << "D=M+1" << endl;
+		outputFile << "@SP" << endl;
+		outputFile << "M=D" << endl;
+		//Restore THAT from caller
+		outputFile << "@R15" << endl;
+		outputFile << "D=M-1" << endl;
+		outputFile << "A=D" << endl;
+		outputFile << "D=M" << endl;
+		outputFile << "@THAT" << endl;
+		outputFile << "M=D" << endl;
+		//Restore THIS from caller
+		outputFile << "@R15" << endl;
+		outputFile << "D=M" << endl;
+		outputFile << "@2" << endl;
+		outputFile << "D=D-A" << endl;
+		outputFile << "A=D" << endl;
+		outputFile << "D=M" << endl;
+		outputFile << "@THIS" << endl;
+		outputFile << "M=D" << endl;
+		//Restore ARG from caller
+		outputFile << "@R15" << endl;
+		outputFile << "D=M" << endl;
+		outputFile << "@3" << endl;
+		outputFile << "D=D-A" << endl;
+		outputFile << "A=D" << endl;
+		outputFile << "D=M" << endl;
+		outputFile << "@ARG" << endl;
+		outputFile << "M=D" << endl;
+		//Restore LCL from caller
+		outputFile << "@R15" << endl;
+		outputFile << "D=M" << endl;
+		outputFile << "@4" << endl;
+		outputFile << "D=D-A" << endl;
+		outputFile << "A=D" << endl;
+		outputFile << "D=M" << endl;
+		outputFile << "@LCL" << endl;
+		outputFile << "M=D" << endl;
+		//Jump to return address
+		outputFile << "@R14" << endl;
+		outputFile << "A=M" << endl;
+		outputFile << "0;JMP" << endl;
+
+		callStack.pop_back();
 	}
 
 	void writeFunction(string functionName, int numLocals) {
+		outputFile << "(" << functionName << ")" << endl;
+		for (int i = 0; i < numLocals; i++) {
+			outputFile << "@0" << endl;
+			outputFile << "M=M+1" << endl;
+			outputFile << "A=M-1" << endl;
+			outputFile << "M=0" << endl;
+		}
 
+		callStack.push_back(functionName);
 	}
 
 	void close() {
@@ -490,6 +620,8 @@ int main(int argc, char* argv[]) {
 	parserModule bob = parserModule(inputFilePath);
 	codeWriter cW = codeWriter(outputFilePath);
 
+	cW.writeInit();
+
 	while (bob.getHasMoreCommands()) {
 		bob.advance();
 		if (!bob.getHasMoreCommands()) break;
@@ -509,13 +641,13 @@ int main(int argc, char* argv[]) {
 			cW.writeIf(bob.getArg1());
 		}
 		else if (bob.getCommandType() == command::C_FUNCTION) {
-			
+			cW.writeFunction(bob.getArg1(), bob.getArg2());
 		}
 		else if (bob.getCommandType() == command::C_RETURN) {
-			
+			cW.writeReturn();
 		}
 		else if (bob.getCommandType() == command::C_CALL) {
-			
+			cW.writeCall(bob.getArg1(), bob.getArg2());
 		}
 	}
 }
