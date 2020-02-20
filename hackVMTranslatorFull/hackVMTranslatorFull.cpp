@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <unordered_map>
 
 using namespace std;
 namespace fs = filesystem;
@@ -32,7 +33,10 @@ private:
 	string line;
 	int currentLine;
 	fs::path currentFile;
+	string currentFunction = "";
 public:
+	string currentCommand;
+
 	parserModule(fs::path _inputFilePath) {
 		currentFile = _inputFilePath;
 		inputFile = ifstream(_inputFilePath);
@@ -56,6 +60,8 @@ public:
 			if (line.find("\t") != string::npos) {
 				line.replace(line.find("\t"), 2, "");
 			}
+
+			currentCommand = line;
 
 			int firstSpace = line.find_first_of(' ');
 			int secondSpace = line.substr(firstSpace + 1).find_first_of(' ');
@@ -96,6 +102,8 @@ public:
 				string secondSegment = line.substr(firstSpace + 1, secondSpace);
 				arg1 = secondSegment;
 
+				if (commandType == command::C_FUNCTION) currentFunction = secondSegment;
+
 				if (commandType == command::C_PUSH || commandType == command::C_POP || commandType == command::C_FUNCTION || commandType == command::C_CALL) {
 					string thirdSegment = line.substr(firstSpace + 2).substr(secondSpace);
 
@@ -113,6 +121,10 @@ public:
 		else {
 			hasMoreCommands = false;
 		}
+	}
+
+	string getCurrentFunction() {
+		return currentFunction;
 	}
 
 	bool getHasMoreCommands() {
@@ -150,7 +162,8 @@ private:
 	int segmentAddress;
 	string currentVMFile;
 	int eqs, gts, lts;
-	vector<string> callStack;
+	parserModule *currentParser;
+	unordered_multimap<string, int> functionCalls;
 public:
 	codeWriter(fs::path _outputFilePath) {
 		outputFile = ofstream(_outputFilePath);
@@ -160,7 +173,13 @@ public:
 		}
 	}
 
-	void setFileName(fs::path _currentVMFile) {
+	void writeCommand(string command) {
+		outputFile << "//" << command << endl;
+	}
+
+	void setFileName(fs::path _currentVMFile, parserModule *parser) {
+		currentParser = parser;
+		
 		currentVMFile = _currentVMFile.string();
 
 		int pos = currentVMFile.find(".vm");
@@ -406,41 +425,33 @@ public:
 	}
 
 	void writeInit() {
+		writeCommand("Set Stackpointer");
 		outputFile << "@256" << endl;
 		outputFile << "D=A" << endl;
 		outputFile << "@SP" << endl;
 		outputFile << "M=D" << endl;
+		writeCommand("call Sys.init 0");
 		writeCall("Sys.init", 0);
-		callStack.pop_back();
 	}
 
 	void writeLabel(string label) {
-		if (!callStack.empty()) {
-			label = callStack.back() + ":" + label;
-		}
-
-		label = currentVMFile + "." + label;
+		string function = currentParser->getCurrentFunction();
+		label = function + ":" + label;
 
 		outputFile << "(" << label << ")" << endl;
 	}
 
 	void writeGoto(string label) {
-		if (!callStack.empty()) {
-			label = callStack.back() + ":" + label;
-		}
-
-		label = currentVMFile + "." + label;
+		string function = currentParser->getCurrentFunction();
+		label = function + ":" + label;
 
 		outputFile << "@" << label << endl;
 		outputFile << "0;JMP" << endl;
 	}
 
 	void writeIf(string label) {
-		if (!callStack.empty()) {
-			label = callStack.back() + ":" + label;
-		}
-
-		label = currentVMFile + "." + label;
+		string function = currentParser->getCurrentFunction();
+		label = function + ":" + label;
 
 		outputFile << "@0" << endl;
 		outputFile << "M=M-1" << endl;
@@ -455,8 +466,11 @@ public:
 	}
 
 	void writeCall(string functionName, int numArgs) {
+		functionCalls.insert(pair<string, int>(functionName, 1));
+		string returnAddress = functionName + ".return" + to_string(functionCalls.count(functionName));
+
 		//Push return address
-		outputFile << "@" << functionName << ".returnAddress" << endl;
+		outputFile << "@" << returnAddress << endl;
 		outputFile << "D=A" << endl;
 		outputFile << "@0" << endl;
 		outputFile << "M=M+1" << endl;
@@ -508,9 +522,7 @@ public:
 		outputFile << "@" << functionName << endl;
 		outputFile << "0;JMP" << endl;
 		//Return Address label
-		outputFile << "(" << functionName << ".returnAddress)" << endl;
-
-		callStack.push_back(functionName);
+		outputFile << "(" << returnAddress << ")" << endl;
 	}
 
 	void writeReturn() {
@@ -576,8 +588,6 @@ public:
 		outputFile << "@R14" << endl;
 		outputFile << "A=M" << endl;
 		outputFile << "0;JMP" << endl;
-
-		callStack.pop_back();
 	}
 
 	void writeFunction(string functionName, int numLocals) {
@@ -588,8 +598,6 @@ public:
 			outputFile << "A=M-1" << endl;
 			outputFile << "M=0" << endl;
 		}
-
-		callStack.push_back(functionName);
 	}
 
 	void close() {
@@ -640,13 +648,18 @@ int main(int argc, char* argv[]) {
 
 	codeWriter cW = codeWriter(outputFilePath);
 
+	cW.writeCommand("INITIALIZE");
 	cW.writeInit();
 
 	for (int i = 0; i < parsers.size(); i++) {
-		cW.setFileName(parsers[i].getCurrentFile());
+		cW.setFileName(parsers[i].getCurrentFile(), &parsers[i]);
 		while (parsers[i].getHasMoreCommands()) {
 			parsers[i].advance();
 			if (!parsers[i].getHasMoreCommands()) break;
+
+			string command = parsers[i].currentCommand;
+			cW.writeCommand(command);
+
 			if (parsers[i].getCommandType() == command::C_ARITHMETIC) {
 				cW.writeArithmetic(parsers[i].getArg1());
 			}
