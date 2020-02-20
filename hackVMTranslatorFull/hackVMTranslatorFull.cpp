@@ -35,8 +35,6 @@ private:
 	fs::path currentFile;
 	string currentFunction = "";
 public:
-	string currentCommand;
-
 	parserModule(fs::path _inputFilePath) {
 		currentFile = _inputFilePath;
 		inputFile = ifstream(_inputFilePath);
@@ -60,8 +58,6 @@ public:
 			if (line.find("\t") != string::npos) {
 				line.replace(line.find("\t"), 2, "");
 			}
-
-			currentCommand = line;
 
 			int firstSpace = line.find_first_of(' ');
 			int secondSpace = line.substr(firstSpace + 1).find_first_of(' ');
@@ -171,10 +167,6 @@ public:
 			cerr << outputFilePath.string() << " could not be created/opened!";
 			exit(1);
 		}
-	}
-
-	void writeCommand(string command) {
-		outputFile << "//" << command << endl;
 	}
 
 	void setFileName(fs::path _currentVMFile, parserModule *parser) {
@@ -425,12 +417,10 @@ public:
 	}
 
 	void writeInit() {
-		writeCommand("Set Stackpointer");
 		outputFile << "@256" << endl;
 		outputFile << "D=A" << endl;
 		outputFile << "@SP" << endl;
 		outputFile << "M=D" << endl;
-		writeCommand("call Sys.init 0");
 		writeCall("Sys.init", 0);
 	}
 
@@ -648,7 +638,6 @@ int main(int argc, char* argv[]) {
 
 	codeWriter cW = codeWriter(outputFilePath);
 
-	cW.writeCommand("INITIALIZE");
 	cW.writeInit();
 
 	for (int i = 0; i < parsers.size(); i++) {
@@ -656,9 +645,6 @@ int main(int argc, char* argv[]) {
 		while (parsers[i].getHasMoreCommands()) {
 			parsers[i].advance();
 			if (!parsers[i].getHasMoreCommands()) break;
-
-			string command = parsers[i].currentCommand;
-			cW.writeCommand(command);
 
 			if (parsers[i].getCommandType() == command::C_ARITHMETIC) {
 				cW.writeArithmetic(parsers[i].getArg1());
